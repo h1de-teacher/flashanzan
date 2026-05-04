@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>フラッシュ暗算アプリ</title>
+    <!-- Web App Manifest (リンク共有時にアプリっぽく見せるため) -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap');
+        body { 
+            font-family: 'Noto Sans JP', sans-serif; 
+            touch-action: manipulation; /* ダブルタップズーム防止 */
+        }
+        /* アニメーションの追加 */
+        .number-flash {
+            animation: flash-in 0.05s ease-out;
+        }
+        @keyframes flash-in {
+            from { transform: scale(0.8); opacity: 0; }
+            to { transform: scale(1); opacity: 1; }
+        }
+    </style>
+</head>
+<body class="bg-slate-100">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        const Icon = ({ name, size = 24, className = "" }) => {
+            useEffect(() => {
+                if (window.lucide) window.lucide.createIcons();
+            }, [name]);
+            return <i data-lucide={name} style={{width: size, height: size}} className={className}></i>;
+        };
+
+        function App() {
+            const [gameState, setGameState] = useState('config');
+            const [config, setConfig] = useState({
+                min: 1,
+                max: 9,
+                count: 5,
+                speed: 500,
+                allowNegative: false,
+                answerMode: 'input',
+            });
+            
+            const [numbers, setNumbers] = useState([]);
+            const [choices, setChoices] = useState([]);
+            const [currentIndex, setCurrentIndex] = useState(0);
+            const [isShowingBlank, setIsShowingBlank] = useState(false);
+            const [userAnswer, setUserAnswer] = useState('');
+            const inputRef = useRef(null);
+
+            const generateChoices = (correct, allowNegative) => {
+                const newChoices = [correct];
+                const variance = Math.max(5, Math.floor(Math.abs(correct) * 0.4)); 
+                while(newChoices.length < 4) {
+                    let diff = Math.floor(Math.random() * (variance * 2 + 1)) - variance;
+                    if (diff === 0) diff = (Math.random() > 0.5 ? 1 : -1);
+                    let dummy = correct + diff;
+                    if (!allowNegative && dummy < 0) dummy = Math.abs(dummy) + Math.floor(Math.random() * 5) + 1;
+                    if (!newChoices.includes(dummy)) newChoices.push(dummy);
+                }
+                return newChoices.sort(() => Math.random() - 0.5);
+            };
+
+            const startGame = () => {
+                const newNumbers = [];
+                for (let i = 0; i < config.count; i++) {
+                    let num = Math.floor(Math.random() * (config.max - config.min + 1)) + config.min;
+                    if (config.allowNegative && i > 0 && Math.random() > 0.5) num = -num;
+                    newNumbers.push(num);
+                }
+                setNumbers(newNumbers);
+                setCurrentIndex(0);
+                setUserAnswer('');
+                setChoices([]);
+                setIsShowingBlank(false);
+                setGameState('playing');
+            };
+
+            useEffect(() => {
+                if (gameState !== 'playing') return;
+                if (currentIndex >= numbers.length) {
+                    const correct = numbers.reduce((acc, curr) => acc + curr, 0);
+                    setChoices(generateChoices(correct, config.allowNegative));
+                    const timer = setTimeout(() => setGameState('answering'), 400);
+                    return () => clearTimeout(timer);
+                }
+                let timerId;
+                if (isShowingBlank) {
+                    timerId = setTimeout(() => setIsShowingBlank(false), 50); 
+                } else {
+                    timerId = setTimeout(() => {
+                        setIsShowingBlank(true);
+                        setCurrentIndex((prev) => prev + 1);
+                    }, config.speed);
+                }
+                return () => clearTimeout(timerId);
+            }, [gameState, currentIndex, isShowingBlank, numbers, config.speed]);
+
+            const submitAnswer = (val) => {
+                const final = val !== undefined ? val.toString() : userAnswer;
+                if (final === '') return;
+                setUserAnswer(final);
+                setGameState('result');
+            };
+
+            const correctAnswer = numbers.reduce((acc, curr) => acc + curr, 0);
+            const isCorrect = parseInt(userAnswer, 10) === correctAnswer;
+            const equationString = numbers.map((n, i) => i === 0 ? n : (n < 0 ? `- ${Math.abs(n)}` : `+ ${n}`)).join(' ');
+
+            return (
+                <div className="min-h-screen flex items-center justify-center p-4">
+                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden border border-slate-200">
+                        <div className="bg-indigo-600 p-5 text-white flex items-center justify-center gap-2">
+                            <Icon name="calculator" size={24} />
+                            <h1 className="text-xl font-bold tracking-wider">フラッシュ暗算</h1>
+                        </div>
+
+                        <div className="p-8">
+                            {gameState === 'config' && (
+                                <div className="space-y-6 animate-in fade-in duration-500">
+                                    <div className="flex items-center gap-2 text-indigo-600 font-semibold border-b pb-2">
+                                        <Icon name="settings" size={20} />
+                                        <h2>トレーニング設定</h2>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div className="space-y-1">
+                                            <label className="text-xs font-bold text-slate-500 uppercase">Min Value</label>
+                                            <input type="number" value={config.min} onChange={e => setConfig({...config, min: parseInt(e.target.value) || 0})} className="w-full border-2 border-slate-100 rounded-xl px-3 py-2 focus:border-indigo-400 outline-none transition-all" />
+                                        </div>
+                                        <div className="space-y-1">
+                                            <label className="text-xs font-bold text-slate-500 uppercase">Max Value</label>
+                                            <input type="number" value={config.max} onChange={e => setConfig({...config, max: parseInt(e.target.value) || 0})} className="w-full border-2 border-slate-100 rounded-xl px-3 py-2 focus:border-indigo-400 outline-none transition-all" />
+                                        </div>
+                                    </div>
+                                    <div className="space-y-3">
+                                        <label className="flex justify-between text-xs font-bold text-slate-500 uppercase">
+                                            <span>出題数</span>
+                                            <span className="text-indigo-600 font-bold">{config.count}</span>
+                                        </label>
+                                        <input type="range" min="3" max="20" value={config.count} onChange={e => setConfig({...config, count: parseInt(e.target.value)})} className="w-full h-2 bg-slate-100 rounded-lg appearance-none cursor-pointer accent-indigo-600" />
+                                    </div>
+                                    <div className="space-y-3">
+                                        <label className="flex justify-between text-xs font-bold text-slate-500 uppercase">
+                                            <span>表示スピード</span>
+                                            <span className="text-indigo-600 font-bold">{(config.speed/1000).toFixed(1)}s</span>
+                                        </label>
+                                        <input type="range" min="100" max="2000" step="100" value={config.speed} onChange={e => setConfig({...config, speed: parseInt(e.target.value)})} className="w-full h-2 bg-slate-100 rounded-lg appearance-none cursor-pointer accent-indigo-600" />
+                                    </div>
+                                    <div className="flex gap-3">
+                                        <button onClick={() => setConfig({...config, answerMode:'input'})} className={`flex-1 py-3 rounded-xl border-2 font-bold transition-all ${config.answerMode==='input'?'bg-indigo-50 border-indigo-500 text-indigo-700 shadow-sm':'border-slate-100 text-slate-400 hover:border-slate-200'}`}>キー入力</button>
+                                        <button onClick={() => setConfig({...config, answerMode:'choice'})} className={`flex-1 py-3 rounded-xl border-2 font-bold transition-all ${config.answerMode==='choice'?'bg-indigo-50 border-indigo-500 text-indigo-700 shadow-sm':'border-slate-100 text-slate-400 hover:border-slate-200'}`}>4択</button>
+                                    </div>
+                                    <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl">
+                                        <input type="checkbox" id="neg" checked={config.allowNegative} onChange={e => setConfig({...config, allowNegative: e.target.checked})} className="w-5 h-5 accent-indigo-600" />
+                                        <label htmlFor="neg" className="text-sm font-bold text-slate-600 cursor-pointer">マイナスの計算を含める</label>
+                                    </div>
+                                    <button onClick={startGame} className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-bold text-xl hover:bg-indigo-700 active:scale-95 transition-all shadow-lg shadow-indigo-200">
+                                        スタート！
+                                    </button>
+                                </div>
+                            )}
+
+                            {gameState === 'playing' && (
+                                <div className="flex items-center justify-center h-80 text-9xl font-black text-slate-800 tracking-tighter">
+                                    {isShowingBlank ? "" : <span className="number-flash">{numbers[currentIndex]}</span>}
+                                </div>
+                            )}
+
+                            {gameState === 'answering' && (
+                                <div className="flex flex-col items-center justify-center h-80 space-y-8 animate-in zoom-in duration-300">
+                                    <h2 className="text-2xl font-black text-slate-700">答えを入力してね</h2>
+                                    {config.answerMode === 'input' ? (
+                                        <div className="text-center space-y-6 w-full">
+                                            <input autoFocus type="number" value={userAnswer} onChange={e => setUserAnswer(e.target.value)} onKeyDown={e => e.key==='Enter' && submitAnswer()} className="text-center text-6xl w-full border-b-4 border-indigo-600 outline-none bg-transparent pb-2 font-black text-indigo-600" placeholder="?" />
+                                            <button onClick={() => submitAnswer()} className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-bold text-xl shadow-lg">回答する</button>
+                                        </div>
+                                    ) : (
+                                        <div className="grid grid-cols-2 gap-4 w-full">
+                                            {choices.map(c => <button key={c} onClick={() => submitAnswer(c)} className="py-6 text-3xl font-black border-2 border-slate-100 rounded-2xl bg-white hover:bg-indigo-50 hover:border-indigo-500 hover:text-indigo-700 transition-all active:scale-95 shadow-sm">{c}</button>)}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            {gameState === 'result' && (
+                                <div className="text-center space-y-8 animate-in slide-in-from-bottom-8 duration-500">
+                                    <div className={isCorrect ? "text-green-500" : "text-rose-500"}>
+                                        <Icon name={isCorrect ? "party-popper" : "alert-circle"} size={80} className="mx-auto" />
+                                        <h2 className="text-4xl font-black mt-4">{isCorrect ? "正解！" : "おしい！"}</h2>
+                                    </div>
+                                    <div className="bg-slate-50 p-6 rounded-2xl border-2 border-slate-100">
+                                        <p className="text-slate-400 font-bold text-sm uppercase">正解</p>
+                                        <p className="text-5xl font-black text-slate-800 mt-1">{correctAnswer}</p>
+                                        <div className="mt-4 pt-4 border-t border-slate-200">
+                                            <p className="text-xs text-slate-400 font-mono tracking-widest leading-relaxed">{equationString}</p>
+                                        </div>
+                                    </div>
+                                    <button onClick={() => setGameState('config')} className="w-full py-4 bg-slate-800 text-white rounded-2xl font-bold text-lg hover:bg-black transition-all active:scale-95 shadow-lg">
+                                        もういちど挑戦する
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
